@@ -63,7 +63,7 @@ ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 absolute_path = os.path.dirname(__file__)
 relative_path = "quiz_img"
 question_image_dir = os.path.join(absolute_path, relative_path)
-# print( question_image_dir)
+print( question_image_dir)
 
 # Function to check if a filename has an allowed extension
 def allowed_file(filename):
