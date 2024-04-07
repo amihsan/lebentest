@@ -1,5 +1,14 @@
 {
   "rewrites": [
     { "source": "/(.*)", "destination": "/api/index" }
+  ],
+  "routes": [
+    { "handle": "filesystem" },
+    {
+      "src": "/quiz_img/(.*)",
+      "dest": "/api/quiz_img/$1"
+    }
   ]
 }
+
+
