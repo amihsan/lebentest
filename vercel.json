@@ -1,6 +1,5 @@
 {
   "rewrites": [
-    { "source": "/api/quiz/images/(.*)", "destination": "/api/quiz_img/$1" },
     { "source": "/(.*)", "destination": "/api/index" }
   ]
 }
