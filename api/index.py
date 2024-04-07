@@ -22,6 +22,9 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
 from werkzeug.utils import secure_filename
+import boto3
+from flask import send_file
+from botocore.exceptions import ClientError 
 
 load_dotenv()
 
@@ -60,9 +63,9 @@ def load_user(user_id):
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 # Define the directory where uploaded question images will be stored
 absolute_path = os.path.dirname(__file__)
-relative_path = "quiz_img"
-question_image_dir = os.path.join(absolute_path, relative_path)
-print( question_image_dir)
+# relative_path = "quiz_img"
+# question_image_dir = os.path.join(absolute_path, relative_path)
+# print( question_image_dir)
 
 # Function to check if a filename has an allowed extension
 def allowed_file(filename):
@@ -452,49 +455,6 @@ def get_quiz_responses():
 
     return jsonify({"responses": dumps(responses)}), 200    
 
-# Function to serve question image with url    
-@app.route('/api/quiz/images/<path:filename>')
-def get_question_img(filename):
-    # Serve the image file from the specified directory
-    return send_from_directory(question_image_dir, filename)
-
-# Function to get quiz questions from mongodb collections based on category
-@app.route('/api/quiz/questions/category/<category_name>', methods=['GET'])
-@jwt_required()
-def get_quiz_questions_by_category(category_name):
-   
-    try:
-        
-        # Get the collection name corresponding to the provided category
-        collection_name = category_to_collection.get(category_name)
-        
-        # Check if the provided category has a corresponding collection
-        if collection_name:
-            # Assuming your quiz questions are stored in the specified collection
-            questions = list(db[collection_name].find())
-
-            # Convert ObjectId to string in each question
-            for question in questions:
-                question['_id'] = str(question['_id'])
-
-                # Check if the image file exists for the question
-                image_path = os.path.join(question_image_dir,  f"{category_name}_{question['question_no']}.png")
-
-                if os.path.exists(image_path):
-                    # If the image file exists, include the URL for serving the image
-                    picture_link = url_for('get_question_img', filename=f"{category_name}_{question['question_no']}.png", _external=True)
-                    question['picture_link'] = picture_link
-                else:
-                    # If the image file doesn't exist, set picture_link to an empty string
-                    question['picture_link'] = ""
-
-
-            # Use dumps from bson.json_util to handle serialization of ObjectId to JSON
-            return dumps({"questions": questions}), 200
-        else:
-            return jsonify({"error": f"No collection found for category '{category_name}'"}), 404
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
 
 # Function to map mongodb collections based on category
 @app.route('/api/categories', methods=['GET'])
@@ -794,6 +754,76 @@ def login_admin_user():
     else:
             return jsonify({"error": "Invalid credentials. Please try again."}), 401
 
+
+
+
+# Define your S3 bucket name and folder
+S3_BUCKET = os.getenv('S3_BUCKET')
+S3_FOLDER = os.getenv('S3_FOLDER')
+AWS_REGION = os.getenv('AWS_REGION')
+
+ # Initialize boto3 client with AWS credentials
+s3 = boto3.client(
+    's3',
+    aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID'),
+    aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+)
+
+@app.route('/api/quiz/questions/category/<category_name>', methods=['GET'])
+@jwt_required()
+def get_quiz_questions_by_category(category_name):
+    try:
+        # Get the collection name corresponding to the provided category
+        collection_name = category_to_collection.get(category_name)
+        
+        # Check if the provided category has a corresponding collection
+        if collection_name:
+            # Assuming your quiz questions are stored in the specified collection
+            questions = list(db[collection_name].find())
+
+            # Convert ObjectId to string in each question
+            for question in questions:
+                question['_id'] = str(question['_id'])
+
+                # Construct the S3 URL for the image
+                image_filename = f"{category_name}_{question['question_no']}.png"
+                image_url = f"https://{S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{S3_FOLDER}/{image_filename}"
+                
+                # Try to access the image in S3
+                try:
+                    response = s3.head_object(Bucket=S3_BUCKET, Key=f"{S3_FOLDER}/{image_filename}")
+                    if response['ResponseMetadata']['HTTPStatusCode'] == 200:
+                        # If the image file exists, include the URL for serving the image
+                        question['picture_link'] = image_url
+                    else:
+                        # If the image file doesn't exist, set picture_link to an empty string
+                        question['picture_link'] = ""
+                except ClientError as e:
+                    # If there is an error (e.g., 404 Not Found), set picture_link to an empty string
+                    question['picture_link'] = ""
+            
+            # Use dumps from bson.json_util to handle serialization of ObjectId to JSON
+            return dumps({"questions": questions}), 200
+        else:
+            return jsonify({"error": f"No collection found for category '{category_name}'"}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/quiz/images/<path:filename>')
+def get_question_img(filename):
+    try:
+        # Construct the S3 URL for the image
+        image_url = f"https://{S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{S3_FOLDER}/{filename}"
+        
+        # Try to download the image from S3
+        try:
+            image_object = s3.get_object(Bucket=S3_BUCKET, Key=f"{S3_FOLDER}/{filename}")
+            return send_file(image_object['Body'], mimetype=image_object['ContentType'])
+        except ClientError as e:
+            # If there is an error (e.g., 404 Not Found), return a 404 response
+            return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 
