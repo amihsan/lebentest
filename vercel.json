@@ -1,14 +1,6 @@
 {
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" },
-    { "source": "/(.*)", "destination": "/$1" }
-  ],
-  "routes": [
-    { "handle": "filesystem" },
-    {
-      "src": "/quiz_img/(.*)",
-      "dest": "/api/quiz_img/$1"
-    }
+    { "source": "/api/quiz/images/(.*)", "destination": "/api/quiz_img/$1" },
+    { "source": "/(.*)", "destination": "/api/index" }
   ]
 }
-
