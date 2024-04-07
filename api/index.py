@@ -55,7 +55,6 @@ jwt = JWTManager(app)
 def load_user(user_id):
     return User.query.get(user_id)
 
-
 #*************************#
 # Set the allowed file extensions for image uploads
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
