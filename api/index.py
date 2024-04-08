@@ -457,6 +457,7 @@ def get_quiz_responses():
 
 # Function to map mongodb collections based on category
 @app.route('/api/categories', methods=['GET'])
+@jwt_required()
 def get_categories():
     category_mapping = [
         {"name": "Category1", "label": "Verfassungsorgane"},
