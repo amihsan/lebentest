@@ -62,6 +62,10 @@ def load_user(user_id):
 # Set the allowed file extensions for image uploads
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
 
+# Function to check if a filename has an allowed extension
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
 # Define your S3 bucket name and folder
 S3_BUCKET = os.getenv('S3_BUCKET')
 S3_QUESTION_FOLDER = os.getenv('S3_QUESTION_FOLDER')
@@ -88,9 +92,6 @@ def upload_file_to_s3(file, bucket_name, key):
 def get_s3_object_url(bucket_name, key):
     return f"https://{bucket_name}.s3.{AWS_REGION}.amazonaws.com/{key}"
 
-# Function to check if a filename has an allowed extension
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # Map category names to collection names
 category_to_collection = {
