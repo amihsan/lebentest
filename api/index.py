@@ -61,11 +61,32 @@ def load_user(user_id):
 #*************************#
 # Set the allowed file extensions for image uploads
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
-# Define the directory where uploaded question images will be stored
-absolute_path = os.path.dirname(__file__)
-# relative_path = "quiz_img"
-# question_image_dir = os.path.join(absolute_path, relative_path)
-# print( question_image_dir)
+
+# Define your S3 bucket name and folder
+S3_BUCKET = os.getenv('S3_BUCKET')
+S3_QUESTION_FOLDER = os.getenv('S3_QUESTION_FOLDER')
+S3_AVATAR_FOLDER = os.getenv('S3_AVATAR_FOLDER')
+AWS_REGION = os.getenv('AWS_REGION')
+
+ # Initialize boto3 client with AWS credentials
+s3 = boto3.client(
+    's3',
+    aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID'),
+    aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
+)
+
+# Function to upload a file to S3
+def upload_file_to_s3(file, bucket_name, key):
+    try:
+        s3.upload_fileobj(file, bucket_name, key)
+        return True
+    except ClientError as e:
+        print(f"Error uploading file to S3: {e}")
+        return False
+
+# Function to generate S3 URL for an object
+def get_s3_object_url(bucket_name, key):
+    return f"https://{bucket_name}.s3.{AWS_REGION}.amazonaws.com/{key}"
 
 # Function to check if a filename has an allowed extension
 def allowed_file(filename):
@@ -302,7 +323,7 @@ def get_user_profile():
 
             # Include avatar URL if available
             if 'avatar_url' in user_data:
-                avatar_url = url_for('get_avatar', filename=os.path.basename(user_data['avatar_url']), _external=True)
+                avatar_url = get_s3_object_url(S3_BUCKET, f"{S3_AVATAR_FOLDER}/{os.path.basename(user_data['avatar_url'])}")
                 profile_data['avatar_url'] = avatar_url
 
             return jsonify(profile_data), 200
@@ -311,6 +332,34 @@ def get_user_profile():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+# Define the route handler for /upload-avatar
+@app.route('/api/upload-avatar', methods=['POST'])
+@jwt_required()
+def upload_avatar():
+    try:
+        # Extract user ID from JWT token
+        current_user_id = get_jwt_identity()
+
+        # Ensure the avatar file is provided in the request
+        if 'avatar' not in request.files:
+            return jsonify({"error": "No avatar provided"}), 400
+
+        avatar_file = request.files['avatar']
+
+        # Customize the S3 key for the avatar
+        s3_key = f"{S3_AVATAR_FOLDER}/user_{current_user_id}.png"
+
+        # Upload the avatar file to S3
+        if upload_file_to_s3(avatar_file, S3_BUCKET, s3_key):
+            # Construct full URL for the avatar
+            avatar_url = get_s3_object_url(S3_BUCKET, s3_key)
+
+            return jsonify({"message": "Avatar uploaded successfully", "avatar_url": avatar_url}), 200
+        else:
+            return jsonify({"error": "Failed to upload avatar to S3"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
 # Function to update user profile
 @app.route('/api/profile', methods=['PUT'])
 @jwt_required()
@@ -346,56 +395,6 @@ def update_user_profile():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Define the route handler for retrieving avatars
-@app.route('/api/avatars/<filename>', methods=['GET'])
-def get_avatar(filename):
-    try:
-        upload_folder = os.path.join(app.root_path, "avatars")
-        avatar_path = os.path.join(upload_folder, filename)
-
-        # Check if the file exists
-        if os.path.exists(avatar_path):
-            return send_file(avatar_path)
-        else:
-            return jsonify({"error": "Avatar not found"}), 404
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# Define the route handler for /upload-avatar
-@app.route('/api/upload-avatar', methods=['POST'])
-@jwt_required()
-def upload_avatar():
-    try:
-        # Extract user ID from JWT token
-        current_user_id = get_jwt_identity()
-
-        # Ensure the avatar file is provided in the request
-        if 'avatar' not in request.files:
-            return jsonify({"error": "No avatar provided"}), 400
-
-        avatar_file = request.files['avatar']
-
-        # Customize the file upload directory and filename
-        upload_folder = os.path.join(app.root_path, "avatars")
-        if not os.path.exists(upload_folder):
-            os.makedirs(upload_folder)  # Create the folder if it doesn't exist
-
-        avatar_filename = f"user_{current_user_id}.png"
-        avatar_path = os.path.join(upload_folder, avatar_filename)
-
-        # Save the avatar file to the specified path
-        avatar_file.save(avatar_path)
-
-        # Update the user's avatar URL in the database
-        db.users.update_one({"_id": ObjectId(current_user_id)}, {"$set": {"avatar_url": avatar_path}})
-
-        # Construct full URL for the avatar
-        avatar_url = url_for('get_avatar', filename=avatar_filename, _external=True)
-
-        return jsonify({"message": "Avatar uploaded successfully", "avatar_url": avatar_url}), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    
 # Function to submit quiz answers with feedback
 @app.route('/api/quiz/submit', methods=['POST'])
 @jwt_required()
@@ -484,6 +483,7 @@ def get_categories():
     return jsonify({"categories": category_mapping})
 
 # Function to add quiz questions and store to mongodb collections based on category
+# and also store image in S3 if provided
 @app.route('/api/quiz/questions/add', methods=['POST'])
 @jwt_required()
 def add_quiz_question():
@@ -519,8 +519,8 @@ def add_quiz_question():
                     # Construct the new filename dynamically using category and question number
                     filename = f"{category_name}_{question_no}.png"  # Remove spaces from category name
 
-                    # Save the file to the upload folder with the new filename
-                    file.save(os.path.join(question_image_dir, secure_filename(filename)))
+                    # Save the file to the s3 bucket with the new filename
+                    upload_file_to_s3(file, S3_BUCKET, f"{S3_QUESTION_FOLDER}/{filename}")
 
                     # Insert the new question into the specified collection
                     db[collection_name].insert_one({
@@ -566,6 +566,7 @@ def add_quiz_question():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 # Function to get quiz question by ID
 @app.route('/api/quiz/questions/<string:category_name>/<string:question_id>', methods=['GET'])
@@ -755,20 +756,6 @@ def login_admin_user():
             return jsonify({"error": "Invalid credentials. Please try again."}), 401
 
 
-
-
-# Define your S3 bucket name and folder
-S3_BUCKET = os.getenv('S3_BUCKET')
-S3_FOLDER = os.getenv('S3_FOLDER')
-AWS_REGION = os.getenv('AWS_REGION')
-
- # Initialize boto3 client with AWS credentials
-s3 = boto3.client(
-    's3',
-    aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID'),
-    aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY')
-)
-
 @app.route('/api/quiz/questions/category/<category_name>', methods=['GET'])
 @jwt_required()
 def get_quiz_questions_by_category(category_name):
@@ -787,11 +774,11 @@ def get_quiz_questions_by_category(category_name):
 
                 # Construct the S3 URL for the image
                 image_filename = f"{category_name}_{question['question_no']}.png"
-                image_url = f"https://{S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{S3_FOLDER}/{image_filename}"
+                image_url = f"https://{S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{S3_QUESTION_FOLDER}/{image_filename}"
                 
                 # Try to access the image in S3
                 try:
-                    response = s3.head_object(Bucket=S3_BUCKET, Key=f"{S3_FOLDER}/{image_filename}")
+                    response = s3.head_object(Bucket=S3_BUCKET, Key=f"{S3_QUESTION_FOLDER}/{image_filename}")
                     if response['ResponseMetadata']['HTTPStatusCode'] == 200:
                         # If the image file exists, include the URL for serving the image
                         question['picture_link'] = image_url
@@ -810,24 +797,21 @@ def get_quiz_questions_by_category(category_name):
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/quiz/images/<path:filename>')
+@jwt_required()
 def get_question_img(filename):
     try:
         # Construct the S3 URL for the image
-        image_url = f"https://{S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{S3_FOLDER}/{filename}"
+        image_url = f"https://{S3_BUCKET}.s3.{AWS_REGION}.amazonaws.com/{S3_QUESTION_FOLDER}/{filename}"
         
         # Try to download the image from S3
         try:
-            image_object = s3.get_object(Bucket=S3_BUCKET, Key=f"{S3_FOLDER}/{filename}")
+            image_object = s3.get_object(Bucket=S3_BUCKET, Key=f"{S3_QUESTION_FOLDER}/{filename}")
             return send_file(image_object['Body'], mimetype=image_object['ContentType'])
         except ClientError as e:
             # If there is an error (e.g., 404 Not Found), return a 404 response
             return jsonify({"error": str(e)}), 404
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-
-
 
 
 if __name__ == "__main__":
