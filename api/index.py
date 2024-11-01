@@ -129,7 +129,7 @@ serializer = URLSafeTimedSerializer(os.getenv('SECRET_KEY'))
 @app.route('/')
 def index(): 
     try:
-        return '<b><big>Hello From Lebentest Quiz App</big></b>'
+        return '<b><big>Hello From Lebentest Quiz Platform</big></b>'
     except Exception as e:
         error_message = f'An error occurred: {str(e)}'
         return error_message
