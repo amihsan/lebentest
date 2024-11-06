@@ -43,10 +43,11 @@ db = client[Config.DATABASE_NAME]
 
 class User(UserMixin):
     def __init__(self, user_data):
-        self.id = str(user_data['_id'])
-        self.username = user_data['username']
-        self.email = user_data['email']
-        self.password = user_data['password']
+        self.id = str(user_data.get('_id', ''))  # Provide a default value if '_id' is missing
+        self.username = user_data.get('username', '')
+        self.email = user_data.get('email', '')
+        self.password = user_data.get('password', '')
+        self.role = user_data.get('role', 'user')  # Default to 'user' if role is missing
 
 
 login_manager = LoginManager()
@@ -61,6 +62,10 @@ def load_user(user_id):
 #*************************#
 # Set the allowed file extensions for image uploads
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif'}
+# Define the directory where uploaded question images will be stored
+absolute_path = os.path.dirname(__file__)
+relative_path = "quiz_img"
+question_image_dir = os.path.join(absolute_path, relative_path)
 
 # Function to check if a filename has an allowed extension
 def allowed_file(filename):
@@ -253,33 +258,43 @@ def reset_password_profile():
 @app.route('/api/register', methods=['POST'])
 def register_user():
     data = request.get_json()
-    # print(data)
 
+    # Retrieve user data from the request
     username = data.get('username')
     email = data.get('email')
     password = data.get('password')
+    role = data.get('role', 'user')  # Default role is 'user'
 
+    # Check for missing fields
     if not username or not email or not password:
         return jsonify({"error": "Missing fields"}), 400
 
+    # Check if user already exists
+    existing_user = db.users.find_one({"$or": [{"username": username}, {"email": email}]})
+    if existing_user:
+        return jsonify({"message": "User already exists."}), 409
+
+    # Hash the password
     hashed_password = bcrypt.generate_password_hash(password).decode('utf-8')
 
+    # Prepare user data for insertion
     user_data = {
         'username': username,
         'email': email,
-        'password': hashed_password
+        'password': hashed_password,
+        'role': role
     }
 
+    # Insert the user data into the database
     user_id = db.users.insert_one(user_data).inserted_id
-    # print(user_id)
 
+    # Return success message and user ID
     return jsonify({"message": "Registration successful", "user_id": str(user_id)}), 201
 
 # Function to log in a user
 @app.route('/api/login', methods=['POST'])
 def login_user():
     data = request.get_json()
-
     username_or_email = data.get('username_or_email')
     password = data.get('password')
 
@@ -290,15 +305,39 @@ def login_user():
 
     if user_data:
         if user_data and bcrypt.check_password_hash(user_data['password'], password):
-            user = User(user_data)
-            access_token = create_access_token(identity=str(user.id))
-            
-            return jsonify({"message": "Login successful", "token": access_token}), 200
+            user = User(user_data) 
+            if user.role == 'user':
+                access_token = create_access_token(identity=str(user.id))
+                return jsonify({"message": "Login successful", "token": access_token, "role": user.role}), 200
         else:
-            return jsonify({"error": "Invalid credentials"}), 401
-        
+            return jsonify({"error": "Invalid credentials"}), 401    
     else:
         return jsonify({"error": "User not found. Please register."}), 404
+
+# Function to log in as an admin 
+@app.route('/api/admin/login', methods=['POST'])
+@jwt_required()
+def admin_login():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+    
+    # from mongodb find the user
+    user_data = db.users.find_one({"username": username})
+
+    if user_data:
+        if user_data and bcrypt.check_password_hash(user_data['password'], password) :
+            user = User(user_data)
+            if user.role == 'admin':
+                access_token = create_access_token(identity=str(user.id))
+                return jsonify({"message": "Logged in as Admin", "token": access_token, "role": user.role}), 200
+            else:
+                return jsonify({"error": "Invalid credentials. You are not an admin"}), 401
+        else:
+            return jsonify({"error": "Invalid credentials"}), 401      
+    else:
+        return jsonify({"error": "Admin not found."}), 404
+
 
 # Define the route handler for fetching user profile
 @app.route('/api/profile', methods=['GET'])
@@ -738,24 +777,6 @@ def delete_quiz_question():
             return jsonify({"error": "Invalid category"}), 400
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-# Function to log in as a admin
-@app.route('/api/admin', methods=['POST'])
-@jwt_required()
-def login_admin_user():
-    data = request.get_json()
-
-    username = data.get('username')
-    password = data.get('password')
-
-    admin_username = os.getenv('ADMIN_USERNAME')
-    admin_password = os.getenv('ADMIN_PASSWORD')
-
-    if( username==admin_username and password==admin_password):
-        return jsonify({"message": "Login successful"}), 200
-    else:
-            return jsonify({"error": "Invalid credentials. Please try again."}), 401
 
 
 @app.route('/api/quiz/questions/category/<category_name>', methods=['GET'])
