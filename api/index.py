@@ -632,7 +632,6 @@ def add_quiz_question():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-
 # Function to get quiz question by ID
 @app.route('/api/quiz/questions/<string:category_name>/<string:question_id>', methods=['GET'])
 @jwt_required()
