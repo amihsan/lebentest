@@ -415,9 +415,11 @@ def upload_avatar():
             # Construct full URL for the avatar
             avatar_url = get_s3_object_url(S3_BUCKET, s3_key)
 
-            return jsonify({"message": "Avatar uploaded successfully", "avatar_url": avatar_url}), 200
-        else:
-            return jsonify({"error": "Failed to upload avatar to S3"}), 500
+        # Update the user's avatar URL in the database
+        db.users.update_one({"_id": ObjectId(current_user_id)}, {"$set": {"avatar_url": avatar_url}})
+
+        return jsonify({"message": "Avatar uploaded successfully", "avatar_url": avatar_url}), 200
+     
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     
@@ -447,7 +449,7 @@ def update_user_profile():
         # Update address if provided
         if 'address' in data:
             user_data['address'] = data['address']
-            print(data)
+            # print(data)
 
         # Update user data in the database
         db.users.update_one({"_id": ObjectId(current_user_id)}, {"$set": user_data})
