@@ -1,8 +1,9 @@
 # index.py
+from functools import wraps
 from flask import Flask
 from flask_cors import CORS
 from flask_login import LoginManager
-from flask_jwt_extended import JWTManager
+from flask_jwt_extended import JWTManager, verify_jwt_in_request
 import os
 from dotenv import load_dotenv
 from pymongo import MongoClient
@@ -338,6 +339,26 @@ def admin_login():
     else:
         return jsonify({"error": "Admin not found."}), 404
 
+# Admin required decorator
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        # Ensure that the request has a valid JWT
+        verify_jwt_in_request()
+        current_user_id = get_jwt_identity()
+        # print(current_user_id)
+
+        # Fetch the user from MongoDB
+        user_data = db.users.find_one({"_id": ObjectId(current_user_id)})
+        # print(user_data)
+    
+
+        # Check if user exists and has admin role
+        if not user_data or user_data.get("role") != "admin":
+            return jsonify({"error": "Access denied. Admins only."}), 403
+
+        return f(*args, **kwargs)
+    return decorated_function
 
 # Define the route handler for fetching user profile
 @app.route('/api/profile', methods=['GET'])
@@ -527,6 +548,7 @@ def get_categories():
 # and also store image in S3 if provided
 @app.route('/api/quiz/questions/add', methods=['POST'])
 @jwt_required()
+@admin_required
 def add_quiz_question():
     try:
         # Extract JSON data from the form fields
@@ -665,6 +687,7 @@ def get_question_by_id(category_name, question_id):
 # Function to update quiz question 
 @app.route('/api/quiz/questions/update', methods=['POST'])
 @jwt_required()
+@admin_required
 def update_quiz_question():
     try:
         
@@ -744,6 +767,7 @@ def update_quiz_question():
 # Function to delete quiz question
 @app.route('/api/quiz/questions/delete', methods=['POST'])
 @jwt_required()
+@admin_required
 def delete_quiz_question():
     try:
         # Extract JSON data from the form fields
